@@ -6,6 +6,7 @@ import connect from './config/config.js';
 import redisClient from "./config/redis.js";
 import cookieParser from "cookie-parser";
 import walletRoutes from './Routes/walletRoutes.js';
+import paymentRoutes from './Routes/paymentRoutes.js';
 
 const app = express();
 app.use(cors({
@@ -23,6 +24,7 @@ app.use(cookieParser());
 
 app.use('/auth', authRoutes);
 app.use('/wallet', walletRoutes);
+app.use('/payments', paymentRoutes);
 
 connect();
 
