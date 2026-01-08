@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import auth from '../middleware/authMiddleWare.js';
 import { Wallet } from '../models/mainSchema.js';
 import { creditWallet } from '../services/ledger.service.js';
+import redisClient from '../config/redis.js';
 
 const router = express.Router();
 
@@ -81,7 +82,25 @@ router.post('/request-link', auth, async (req, res) => {
       to: to || ''
     }).toString();
 
-    const payUrl = `${frontUrl}/pay?${params}`;
+    // Create a secure, short token rather than exposing order details in URL
+    const token = `pl_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
+
+    // Store link details in Redis with TTL (e.g., 1 day)
+    const payload = {
+      orderId: order.id,
+      amount: amountInPaise, // Razorpay expects paise in checkout
+      displayAmount: amount, // rupees for UI display
+      currency: order.currency,
+      key_id: process.env.RAZORPAY_KEY_ID,
+      desc: description || 'Payment Request',
+      to: to || ''
+    };
+
+    await redisClient.set(`paylink:${token}`, JSON.stringify(payload), {
+      EX: 24 * 60 * 60 // 1 day
+    });
+
+    const payUrl = `${frontUrl}/pay?token=${token}`;
 
     res.json({
       message: 'Request link created',
@@ -94,6 +113,33 @@ router.post('/request-link', auth, async (req, res) => {
   } catch (error) {
     console.error('Request link error:', error);
     res.status(500).json({ message: 'Failed to create request link', error: error.message });
+  }
+});
+
+// Resolve tokenized payment link details (public)
+router.get('/link-details', async (req, res) => {
+  try {
+    const { token } = req.query;
+    if (!token) {
+      return res.status(400).json({ message: 'token is required' });
+    }
+    const raw = await redisClient.get(`paylink:${token}`);
+    if (!raw) {
+      return res.status(404).json({ message: 'Link not found or expired' });
+    }
+    const data = JSON.parse(raw);
+    return res.json({
+      orderId: data.orderId,
+      amount: data.amount,
+      displayAmount: data.displayAmount,
+      currency: data.currency,
+      key_id: data.key_id,
+      desc: data.desc,
+      to: data.to
+    });
+  } catch (error) {
+    console.error('Link details error:', error);
+    res.status(500).json({ message: 'Failed to resolve link', error: error.message });
   }
 });
 
