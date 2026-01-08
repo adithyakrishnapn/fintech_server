@@ -92,6 +92,53 @@ router.post("/webhook", async (req, res) => {
   }
 });
 
+// Client-side verification fallback (use when webhooks are not configured)
+router.post("/verify-payment", async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ message: "Missing payment verification fields" });
+    }
+
+    // Verify signature
+    const hmac = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET);
+    hmac.update(razorpay_order_id + "|" + razorpay_payment_id);
+    const generated_signature = hmac.digest('hex');
+
+    if (generated_signature !== razorpay_signature) {
+      return res.status(400).json({ message: "Invalid signature" });
+    }
+
+    // Fetch payment details to confirm amount/capture status
+    const payment = await razorpay.payments.fetch(razorpay_payment_id);
+    if (payment.status !== "captured") {
+      return res.status(400).json({ message: "Payment not captured" });
+    }
+
+    const amount = payment.amount / 100; // rupees
+
+    const userId = payment.notes?.userId;
+    const wallet = await Wallet.findOne({ userId });
+    if (!wallet) {
+      return res.status(404).json({ message: "Wallet not found" });
+    }
+
+    await creditWallet({
+      walletId: wallet._id,
+      amount,
+      referenceId: razorpay_payment_id,
+      description: `Add money via Razorpay (Order: ${razorpay_order_id})`
+    });
+
+    const updatedWallet = await Wallet.findById(wallet._id);
+    res.json({ message: "Payment verified and wallet credited", balance: updatedWallet.balance });
+  } catch (error) {
+    console.error("Verify payment error:", error);
+    res.status(500).json({ message: "Failed to verify payment", error: error.message });
+  }
+});
+
 
 router.post("/transfer", auth, async (req, res) => {
   try {
