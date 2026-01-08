@@ -71,7 +71,7 @@ router.post('/request-link', auth, async (req, res) => {
       }
     });
 
-    const frontUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontUrl = process.env.APP_URL || 'http://localhost:5173';
     const params = new URLSearchParams({
       orderId: order.id,
       amount: String(amount),
