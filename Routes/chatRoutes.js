@@ -2,6 +2,8 @@ import express from 'express';
 import { Transaction } from '../models/mainSchema.js';
 import Message from '../models/messageSchema.js';
 import { User } from '../models/mainSchema.js';
+import mongoose from "mongoose";
+
 
 const router = express.Router();
 
