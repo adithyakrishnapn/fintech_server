@@ -5,6 +5,7 @@ import { creditWallet, walletToWalletTransfer, debitWallet } from '../services/l
 import auth from '../middleware/authMiddleWare.js';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 
 const router = express.Router();
 
@@ -32,14 +33,37 @@ router.post("/transfer", auth, async (req, res) => {
       return res.status(400).json({ message: "Insufficient balance" });
     }
 
+    // Verify PIN
+    const user = await User.findById(req.user.userId);
+    if (!user.transactionPin) {
+      return res.status(400).json({ message: "Transaction PIN not set. Please set it in dashboard." });
+    }
+
+    // We assume 'pin' is passed in req.body
+    const { pin } = req.body;
+
+    // DEBUG LOGS (Remove in production)
+    console.log(`[Transfer] User: ${req.user.userId}, Received PIN: ${pin}, Stored Hash: ${user.transactionPin}`);
+
+    if (!pin) {
+      return res.status(400).json({ message: "PIN is required" });
+    }
+
+    const isPinValid = await bcrypt.compare(pin, user.transactionPin);
+    console.log(`[Transfer] PIN Valid: ${isPinValid}`);
+
+    if (!isPinValid) {
+      return res.status(400).json({ message: "Invalid Transaction PIN" });
+    }
+
     // Find recipient by multiple criteria: MongoDB ObjectId, phone, or email
     let toUser = null;
-    
+
     // Try to find by ObjectId first
     if (mongoose.Types.ObjectId.isValid(toUserId)) {
       toUser = await User.findById(toUserId);
     }
-    
+
     // If not found, try by phone or email
     if (!toUser) {
       toUser = await User.findOne({
@@ -70,8 +94,8 @@ router.post("/transfer", auth, async (req, res) => {
       amount
     });
 
-    res.json({ 
-      message: "Transfer successful", 
+    res.json({
+      message: "Transfer successful",
       transfer,
       recipient: {
         name: toUser.name,
@@ -164,8 +188,8 @@ router.post("/withdraw", auth, async (req, res) => {
           description: `Withdrawal to UPI: ${upiId}`
         });
 
-        res.json({ 
-          message: "Withdrawal successful", 
+        res.json({
+          message: "Withdrawal successful",
           payoutId: payout.id,
           status: payout.status,
           utr: payout.utr
@@ -173,15 +197,15 @@ router.post("/withdraw", auth, async (req, res) => {
 
       } catch (payoutError) {
         console.error("Payout creation failed:", payoutError);
-        return res.status(500).json({ 
-          message: "Payout failed. Your wallet has not been debited.", 
-          error: payoutError.message 
+        return res.status(500).json({
+          message: "Payout failed. Your wallet has not been debited.",
+          error: payoutError.message
         });
       }
     } else {
       // Simulated withdrawal (for development/testing)
       const referenceId = `sim_payout_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-      
+
       try {
         await debitWallet({
           walletId: wallet._id,
@@ -190,8 +214,8 @@ router.post("/withdraw", auth, async (req, res) => {
           description: `Simulated withdrawal to UPI: ${upiId}`
         });
 
-        res.json({ 
-          message: "Withdrawal initiated (simulated)", 
+        res.json({
+          message: "Withdrawal initiated (simulated)",
           payoutId: referenceId,
           status: "simulated",
           utr: `SIM${Date.now()}`,
@@ -199,9 +223,9 @@ router.post("/withdraw", auth, async (req, res) => {
         });
       } catch (debitError) {
         console.error("Debit wallet error:", debitError);
-        return res.status(500).json({ 
-          message: "Failed to debit wallet", 
-          error: debitError.message 
+        return res.status(500).json({
+          message: "Failed to debit wallet",
+          error: debitError.message
         });
       }
     }
@@ -254,7 +278,7 @@ router.post("/payout-webhook", async (req, res) => {
 router.get("/transactions", auth, async (req, res) => {
   try {
     const { limit = 50, skip = 0 } = req.query;
-    
+
     const wallet = await Wallet.findOne({ userId: req.user.userId }).populate('userId', 'name email phone');
     if (!wallet) {
       return res.status(404).json({ message: "Wallet not found" });
@@ -273,10 +297,10 @@ router.get("/transactions", auth, async (req, res) => {
       ],
       status: "SUCCESS"
     })
-    .populate('fromWallet')
-    .populate('toWallet')
-    .sort({ createdAt: -1 })
-    .limit(parseInt(limit));
+      .populate('fromWallet')
+      .populate('toWallet')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit));
 
     // Enrich transfer data with user information
     const enrichedTransfers = await Promise.all(transfers.map(async (transfer) => {
@@ -309,8 +333,8 @@ router.get("/transactions", auth, async (req, res) => {
       description: tx.description,
       referenceId: tx.referenceId,
       date: tx.createdAt,
-      category: tx.description?.includes('Add money') ? 'topup' : 
-                tx.description?.includes('Withdrawal') ? 'withdrawal' : 'other'
+      category: tx.description?.includes('Add money') ? 'topup' :
+        tx.description?.includes('Withdrawal') ? 'withdrawal' : 'other'
     }));
 
     // Combine and sort all activities
@@ -318,7 +342,7 @@ router.get("/transactions", auth, async (req, res) => {
       .sort((a, b) => new Date(b.date) - new Date(a.date))
       .slice(0, parseInt(limit));
 
-    res.json({ 
+    res.json({
       transactions: allActivities,
       total: allActivities.length,
       wallet: {
@@ -336,7 +360,7 @@ router.get("/transactions", auth, async (req, res) => {
 router.get("/recent-activities", auth, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 5;
-    
+
     const wallet = await Wallet.findOne({ userId: req.user.userId }).populate('userId', 'name email');
     if (!wallet) {
       return res.status(404).json({ message: "Wallet not found" });
@@ -350,8 +374,8 @@ router.get("/recent-activities", auth, async (req, res) => {
       ],
       status: "SUCCESS"
     })
-    .sort({ createdAt: -1 })
-    .limit(limit);
+      .sort({ createdAt: -1 })
+      .limit(limit);
 
     // Enrich with user data
     const activities = await Promise.all(transfers.map(async (transfer) => {
@@ -366,8 +390,8 @@ router.get("/recent-activities", auth, async (req, res) => {
         amount: transfer.amount,
         sender: isReceived ? (otherUser?.name || 'Unknown') : wallet.userId?.name,
         receiver: !isReceived ? (otherUser?.name || 'Unknown') : wallet.userId?.name,
-        date: new Date(transfer.createdAt).toLocaleDateString('en-US', { 
-          month: 'short', 
+        date: new Date(transfer.createdAt).toLocaleDateString('en-US', {
+          month: 'short',
           day: 'numeric',
           year: 'numeric'
         }),

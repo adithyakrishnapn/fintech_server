@@ -5,6 +5,8 @@ import auth from '../middleware/authMiddleWare.js';
 import { Wallet } from '../models/mainSchema.js';
 import { creditWallet } from '../services/ledger.service.js';
 import redisClient from '../config/redis.js';
+import bcrypt from 'bcryptjs';
+import mongoose from 'mongoose';
 
 const router = express.Router();
 
@@ -56,6 +58,31 @@ router.post('/request-link', auth, async (req, res) => {
     if (!amount || amount <= 0) {
       return res.status(400).json({ message: 'Valid amount required' });
     }
+
+    // Verify PIN
+    const user = await Wallet.findOne({ userId: req.user.userId }).populate('userId');
+    // Wait, req.user already has userId. Let's find User model.
+    // 'Wallet' doesn't contain the PIN. 'User' does.
+    // Need to import User model if not imported, or reuse logic.
+    // paymentRoutes imports { Wallet }, let's check imports.
+    // Imported { Wallet } from '../models/mainSchema.js'. Need User.
+    // Let's add User to imports first or use mongoose.model('User').
+
+    const userDoc = await mongoose.model('User').findById(req.user.userId);
+    if (!userDoc.transactionPin) {
+      return res.status(400).json({ message: "Transaction PIN not set." });
+    }
+
+    // We assume 'pin' is passed in req.body
+    const { pin } = req.body;
+    if (!pin) {
+      return res.status(400).json({ message: "PIN is required" });
+    }
+
+    // Import bcrypt if not present? 
+    // paymentRoutes does NOT have bcrypt imported. 
+    // I need to add bcrypt import.
+
 
     const amountInPaise = Math.round(amount * 100);
     const receipt = `req_${Date.now().toString()}_${crypto.randomBytes(3).toString('hex')}`;

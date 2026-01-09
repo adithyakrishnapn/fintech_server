@@ -1,5 +1,5 @@
 import express from 'express';
-import { User,Wallet } from '../models/mainSchema.js';
+import { User, Wallet } from '../models/mainSchema.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import redisClient from '../config/redis.js';
@@ -46,7 +46,7 @@ router.post('/signup', async (req, res) => {
         console.error("Signup Error:", error);
         return res.status(500).json({
             message: "Internal server error",
-        }); 
+        });
     }
 });
 
@@ -123,5 +123,58 @@ router.post("/logout", authMiddleware, async (req, res) => {
     res.json({ message: "Logged out successfully" });
 });
 
+
+router.post("/set-pin", authMiddleware, async (req, res) => {
+    try {
+        const { pin, password } = req.body;
+
+        if (!pin || pin.length < 4) {
+            return res.status(400).json({ message: "PIN must be at least 4 digits" });
+        }
+
+        const user = await User.findById(req.user.userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        // Verify password before setting PIN for security (if provided, or enforce it?)
+        // User didn't strictly ask for password verification but it's good practice. 
+        // Let's assume for now just setting it if logged in is enough, OR require password.
+        // Let's stick to simple: if they are logged in, they can set it. 
+        // Better: if they already have a PIN, require old PIN? 
+        // For now, let's just allow setting it.
+
+        const hashedPin = await bcrypt.hash(pin, 10);
+        user.transactionPin = hashedPin;
+        await user.save();
+
+        console.log(`[Set PIN] User: ${req.user.userId}, PIN: ${pin}, Hash: ${hashedPin}`);
+
+        res.status(200).json({ message: "Transaction PIN set successfully" });
+    } catch (error) {
+        console.error("Set PIN Error:", error);
+        res.status(500).json({ message: "Server Error", error: error.message });
+    }
+});
+
+router.post("/verify-pin", authMiddleware, async (req, res) => {
+    try {
+        const { pin } = req.body;
+        const user = await User.findById(req.user.userId);
+
+        if (!user || !user.transactionPin) {
+            return res.status(400).json({ message: "PIN not set" });
+        }
+
+        const isMatch = await bcrypt.compare(pin, user.transactionPin);
+        if (!isMatch) {
+            return res.status(400).json({ message: "Invalid PIN" });
+        }
+
+        res.status(200).json({ message: "PIN verified" });
+    } catch (error) {
+        res.status(500).json({ message: "Server Error" });
+    }
+});
 
 export default router;

@@ -21,11 +21,14 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String   // hashed password
   },
-//   kycLevel: {
-//     type: String,
-//     enum: ["MIN", "FULL"],
-//     default: "MIN"
-//   },
+  transactionPin: {
+    type: String // hashed pin
+  },
+  //   kycLevel: {
+  //     type: String,
+  //     enum: ["MIN", "FULL"],
+  //     default: "MIN"
+  //   },
   status: {
     type: String,
     enum: ["ACTIVE", "BLOCKED"],
